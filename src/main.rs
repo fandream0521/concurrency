@@ -1,3 +1,8 @@
+use std::thread;
+
 fn main() {
-    println!("Hello, world!");
+    let join = thread::spawn(|| {
+        println!("Hello from the spawned thread!");
+    });
+    join.join().unwrap();
 }
