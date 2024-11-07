@@ -1,5 +1,5 @@
 use anyhow::Result;
-use concurrency::{multiply, Matrix};
+use concurrency::Matrix;
 
 fn main() -> Result<()> {
     // generate a matrix of 20x30
@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     let b = Matrix::new(&data, 30, 40);
     println!("{}", b);
 
-    let result = multiply(&a, &b)?;
+    let result = (a * b)?;
     println!("{}", result);
     Ok(())
 }

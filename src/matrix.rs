@@ -44,8 +44,8 @@ impl<T: Clone + Default + Copy> Matrix<T> {
         }
     }
 
-    pub fn rows(&self, rows: usize) -> &[T] {
-        &self[rows]
+    pub fn rows(&self, rows: usize) -> Vec<T> {
+        self[rows].to_vec()
     }
 
     pub fn cols(&self, cols: usize) -> Vec<T> {
@@ -95,41 +95,36 @@ where
                     let col = Vector::new(&msg.input.col);
                     let result = dot_product(row, col).unwrap();
                     msg.sender
-                        .send(MsgOutput {
-                            idx: msg.input.idx,
-                            result,
-                        })
-                        .unwrap();
+                        .send(MsgOutput::new(msg.input.idx, result))
+                        .map_err(|e| anyhow::anyhow!("Error sending message: {:?}", e))?;
                 }
+                Ok::<_, anyhow::Error>(())
             });
             sender
         })
         .collect::<Vec<_>>();
 
-    let mut matrix_result = Matrix::init(a.rows, b.cols);
-    let mut results = vec![];
+    let mut data = Matrix::init(a.rows, b.cols);
+    let mut receivers = vec![];
     for i in 0..a.rows {
         for j in 0..b.cols {
             let idx = i * b.cols + j;
-            let row = a.rows(i).to_vec();
+            let row = a.rows(i);
             let col = b.cols(j);
             let (sender, receiver) = oneshot::channel();
             msg_senders[idx % NUM_THREADS]
-                .send(Msg {
-                    input: MsgInput { idx, row, col },
-                    sender,
-                })
-                .unwrap();
-            results.push(receiver);
+                .send(Msg::new(MsgInput::new(idx, row, col), sender))
+                .map_err(|e| anyhow::anyhow!("Error sending message: {:?}", e))?;
+            receivers.push(receiver);
         }
     }
 
-    for result in results {
-        let result = result.recv().unwrap();
-        matrix_result.data[result.idx] = result.result;
+    for receive in receivers {
+        let result = receive.recv()?;
+        data.data[result.idx] = result.result;
     }
 
-    Ok(matrix_result)
+    Ok(data)
 }
 
 pub struct Vector<T> {
@@ -193,6 +188,35 @@ impl<T: Debug> Display for Matrix<T> {
     }
 }
 
+impl<T> Mul for Matrix<T>
+where
+    T: Mul<Output = T> + AddAssign + Default + Copy + Clone + Debug + Send + 'static,
+{
+    type Output = Result<Matrix<T>>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        multiply_thread(&self, &rhs)
+    }
+}
+
+impl<T> Msg<T> {
+    pub fn new(input: MsgInput<T>, sender: Sender<MsgOutput<T>>) -> Self {
+        Self { input, sender }
+    }
+}
+
+impl<T> MsgOutput<T> {
+    pub fn new(idx: usize, result: T) -> Self {
+        Self { idx, result }
+    }
+}
+
+impl<T> MsgInput<T> {
+    pub fn new(idx: usize, row: Vec<T>, col: Vec<T>) -> Self {
+        Self { idx, row, col }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +261,29 @@ mod tests {
             vec![140, 146, 320, 335],
             "Matrix multiplication failed"
         );
+    }
+
+    #[test]
+    fn test_multiply_thread_large() {
+        let a = Matrix::new(&[1; 1000], 100, 10);
+        let b = Matrix::new(&[1; 1000], 10, 100);
+        let result = multiply_thread(&a, &b).unwrap();
+        assert_eq!(result.data, vec![10; 10000], "Matrix multiplication failed");
+    }
+
+    #[test]
+    fn test_multiply_thread_invalid() {
+        let a = Matrix::new(&[1, 2, 3, 4, 5, 6], 2, 3);
+        let b = Matrix::new(&[10, 11, 20, 21, 30, 31], 2, 2);
+        let result = multiply_thread(&a, &b);
+        assert!(result.is_err(), "Matrix multiplication should fail");
+    }
+
+    #[test]
+    fn test_multiply_thread_invalid_vector() {
+        let a = Vector::new(&[1, 2, 3]);
+        let b = Vector::new(&[4, 5]);
+        let result = dot_product(a, b);
+        assert!(result.is_err(), "Vector dot product should fail");
     }
 }
