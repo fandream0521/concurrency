@@ -1,19 +1,19 @@
 use std::thread;
 
 use anyhow::Result;
-use concurrency::Metrix;
+use concurrency::DashMapMetrix;
 use rand::Rng;
 const NUM_THREADS: usize = 5;
 fn main() -> Result<()> {
-    let metrix = Metrix::new();
+    let metrix = DashMapMetrix::new();
     for _ in 0..NUM_THREADS {
         let random_num = rand::thread_rng().gen_range(0..10);
         work(random_num, metrix.clone());
     }
     let read = thread::spawn(move || {
         loop {
-            thread::sleep(std::time::Duration::from_secs(5));
-            println!("{:?}", metrix.snapshot()?);
+            thread::sleep(std::time::Duration::from_secs(2));
+            println!("{}", metrix);
         }
         #[allow(unreachable_code)]
         Ok::<_, anyhow::Error>(())
@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn work(idx: usize, metrix: Metrix) {
+fn work(idx: usize, metrix: DashMapMetrix) {
     thread::spawn(move || {
         loop {
             // sleep for a random amount of time
